@@ -1,5 +1,7 @@
 # deepagentsdk Demo
 
+![readme-image](./assets/readme-image.png)
+
 A demonstration of [deepagentsdk](https://github.com/chrispangg/deepagentsdk) integration with Next.js, showcasing an AI agent with real-time file operations, command execution, and event streaming.
 
 For more information, see the [deepagentsdk documentation](https://deepagentsdk.dev/docs).
