@@ -2,7 +2,6 @@ import type { ChatStatus, DataUIPart } from "ai";
 import { useMemo } from "react";
 import { create } from "zustand";
 import type { Command, CommandLog } from "@/components/commands-logs/types";
-import { useMonitorState } from "@/components/error-monitor/state";
 
 interface SandboxStore {
 	addGeneratedFiles: (files: string[]) => void;

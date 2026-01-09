@@ -1,49 +1,15 @@
 /**
  * Client-side hook for calling the deepagentsdk API
  *
- * This hook calls the /api/chat endpoint and processes the streaming events,
- * converting them to UI-compatible formats for AI SDK Elements components.
+ * This hook directly calls the /api/chat endpoint and processes the streaming events.
+ * The server-side uses createElementsRouteHandler from deepagentsdk/elements which
+ * streams responses in the AI SDK UI Message Stream Protocol.
  */
 
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 
-// Import adapter utilities (adapted from deepagentsdk/elements)
-import {
-  convertEventsToUIMessages,
-  extractToolParts,
-  mapAgentStatusToUIStatus,
-  type UIMessage,
-  type UIMessagePart,
-  type UIStatus,
-  type PromptInputMessage,
-  type ToolUIPart,
-} from "./use-chat-api-utils";
-
-// Types for AI SDK Elements adapter
-
-// Task types for displaying tool calls as workflow tasks
-export interface TaskItem {
-  type: "input" | "processing" | "result" | "error";
-  content: string;
-  data?: unknown;
-}
-
-export interface TaskUIPart {
-  toolCallId: string;
-  toolName: string;
-  status: "pending" | "in_progress" | "completed" | "error";
-  items: TaskItem[];
-}
-
-// Todo types from deepagentsdk (matching src/types/core.ts)
-export interface TodoItem {
-  id: string;
-  content: string;
-  status: "pending" | "in_progress" | "completed" | "cancelled";
-}
-
-// Re-export shared types for convenience
-export type { UIMessage, UIMessagePart, UIStatus, PromptInputMessage, ToolUIPart };
+// Re-export UIMessage and UIMessagePart from deepagentsdk/elements
+export type { UIMessage, UIMessagePart } from "deepagentsdk/elements";
 
 // QueueTodo type for Queue component (matching queue.tsx)
 export type QueueTodo = {
@@ -53,157 +19,37 @@ export type QueueTodo = {
   status?: "pending" | "completed";
 };
 
+// UI status based on chat state
+type UIStatusState = "submitted" | "streaming" | "ready" | "error";
+
 export interface UseChatAPIReturn {
-  uiMessages: UIMessage[];
-  uiStatus: UIStatus;
-  toolParts: ToolUIPart[];
-  taskParts: TaskUIPart[];
+  uiMessages: any[];
+  uiStatus: UIStatusState;
+  taskParts: any[];
   todos: QueueTodo[];
   sandboxId: string;
   filePaths: string[];
-  sendMessage: (message: PromptInputMessage) => Promise<void>;
+  sendMessage: (message: { text: string }) => Promise<void>;
   abort: () => void;
   clear: () => void;
   refreshFiles: () => Promise<void>;
 }
 
-// Agent status and event types
-type AgentStatus = "idle" | "thinking" | "streaming" | "tool-call" | "done" | "error" | "subagent";
-
-interface AgentEventLog {
-  id: string;
-  type: string;
-  event: any;
-  timestamp: Date;
-}
-
-let eventCounter = 0;
-
-function createEventId(): string {
-  return `event-${++eventCounter}`;
-}
-
-// Note: Core adapter utilities (mapAgentStatusToUIStatus, convertEventsToUIMessages,
-// extractToolParts) are imported from ./use-chat-api-utils.ts (adapted from deepagentsdk/elements)
-
-function convertToolPartsToTasks(
-  toolParts: ToolUIPart[],
-  uiStatus: UIStatus
-): TaskUIPart[] {
-  // Group tool-call and tool-result by toolCallId
-  const toolMap = new Map<string, {
-    call: ToolUIPart & { type: "tool-call" };
-    result?: ToolUIPart & { type: "tool-result" };
-  }>();
-
-  for (const part of toolParts) {
-    if (part.type === "tool-call") {
-      toolMap.set(part.toolCallId, { call: part as ToolUIPart & { type: "tool-call" } });
-    } else if (part.type === "tool-result") {
-      const existing = toolMap.get(part.toolCallId);
-      if (existing) {
-        existing.result = part as ToolUIPart & { type: "tool-result" };
-      }
-    }
-  }
-
-  // Convert each tool to a task
-  return Array.from(toolMap.values()).map(({ call, result }) => {
-    const items: TaskItem[] = [];
-
-    // Input item
-    if (call.args) {
-      items.push({
-        type: "input",
-        content: formatToolInput(call.toolName, call.args),
-        data: call.args,
-      });
-    }
-
-    // Determine status and add result item
-    let status: TaskUIPart["status"] = "pending";
-    if (result) {
-      if (result.isError) {
-        status = "error";
-        items.push({
-          type: "error",
-          content: String(result.result),
-          data: result.result,
-        });
-      } else {
-        status = "completed";
-        items.push({
-          type: "result",
-          content: formatToolResult(result.result),
-          data: result.result,
-        });
-      }
-    } else if (uiStatus === "submitted" || uiStatus === "streaming") {
-      status = "in_progress";
-      items.push({
-        type: "processing",
-        content: "Running...",
-      });
-    }
-
-    return {
-      toolCallId: call.toolCallId,
-      toolName: call.toolName,
-      status,
-      items,
-    };
-  });
-}
-
-function formatToolInput(toolName: string, args: unknown): string {
-  if (typeof args === "object" && args !== null) {
-    const entries = Object.entries(args as Record<string, unknown>);
-    if (entries.length === 1) {
-      const [key, value] = entries[0];
-      return `Running with ${key}: ${JSON.stringify(value)}`;
-    }
-    return `Running with parameters`;
-  }
-  return `Running with: ${JSON.stringify(args)}`;
-}
-
-function formatToolResult(result: unknown): string {
-  if (typeof result === "object" && result !== null) {
-    return "Completed";
-  }
-  return `Completed: ${String(result)}`;
-}
-
 /**
- * Convert deepagentsdk TodoItem to QueueTodo format for Queue component
- * Maps status: "pending"|"in_progress" → "pending", "completed"|"cancelled" → "completed"
- */
-function convertToQueueTodos(todos: TodoItem[]): QueueTodo[] {
-  return todos
-    .filter((todo) => todo.status !== "cancelled") // Don't show cancelled todos
-    .map((todo) => ({
-      id: todo.id,
-      title: todo.content,
-      status: todo.status === "completed" ? "completed" : "pending",
-    }));
-}
-
-/**
- * Hook that calls the deepagentsdk API and adapts the response
- * to work with AI SDK Elements UI components
+ * Hook that calls the deepagentsdk API via /api/chat endpoint
+ *
+ * The server-side route uses createElementsRouteHandler which streams
+ * responses in the AI SDK UI Message Stream Protocol.
  */
 export function useChatAPI(): UseChatAPIReturn {
-  const [status, setStatus] = useState<AgentStatus>("idle");
-  const [streamingText, setStreamingText] = useState("");
-  const [events, setEvents] = useState<AgentEventLog[]>([]);
-  const [todos, setTodos] = useState<QueueTodo[]>([]);
-  const [filePaths, setFilePaths] = useState<string[]>([]);
-
   // Use a constant sandbox ID for the local sandbox
   const sandboxId = "local";
+  const [filePaths, setFilePaths] = useState<string[]>([]);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [status, setStatus] = useState<UIStatusState>("ready");
+  const [todos, setTodos] = useState<QueueTodo[]>([]);
 
   const abortControllerRef = useRef<AbortController | null>(null);
-  const accumulatedTextRef = useRef("");
 
   // Function to refresh file list from sandbox
   const refreshFiles = useCallback(async () => {
@@ -220,48 +66,45 @@ export function useChatAPI(): UseChatAPIReturn {
     }
   }, [sandboxId]);
 
-  const addEvent = useCallback(
-    (event: any) => {
-      setEvents((prev) => [
-        ...prev,
-        {
-          id: createEventId(),
-          type: event.type,
-          event,
-          timestamp: new Date(),
-        },
-      ]);
-    },
-    []
-  );
+  // Refresh files on mount
+  useEffect(() => {
+    refreshFiles();
+  }, [refreshFiles]);
 
-  // Flush accumulated text as a text-segment event
-  const flushTextSegment = useCallback(() => {
-    if (accumulatedTextRef.current.trim()) {
-      addEvent({
-        type: "text-segment",
-        text: accumulatedTextRef.current,
-      });
-      accumulatedTextRef.current = "";
-      setStreamingText("");
-    }
-  }, [addEvent]);
-
-  const sendMessage = async (message: PromptInputMessage): Promise<void> => {
+  // Send message to the API
+  const sendMessage = useCallback(async (message: { text: string }) => {
     if (!message.text.trim()) {
       return;
     }
 
     // Reset for new generation
-    setStatus("thinking");
-    setStreamingText("");
-    accumulatedTextRef.current = "";
-
-    // Add user message to events
-    addEvent({ type: "user-message", content: message.text });
-
-    // Create new abort controller
+    setStatus("streaming");
     abortControllerRef.current = new AbortController();
+
+    // Convert messages to AI SDK UI Message format
+    // The createElementsRouteHandler expects messages with 'parts' array
+    const uiMessages = messages.map((msg) => ({
+      id: msg.id || `msg-${Date.now()}-${Math.random()}`,
+      role: msg.role,
+      parts: msg.parts || [
+        {
+          type: "text",
+          text: msg.content || "",
+        },
+      ],
+    }));
+
+    // Add the new user message
+    uiMessages.push({
+      id: `msg-${Date.now()}-new`,
+      role: "user",
+      parts: [
+        {
+          type: "text",
+          text: message.text,
+        },
+      ],
+    });
 
     try {
       const response = await fetch("/api/chat", {
@@ -269,7 +112,9 @@ export function useChatAPI(): UseChatAPIReturn {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message: message.text }),
+        body: JSON.stringify({
+          messages: uiMessages,
+        }),
         signal: abortControllerRef.current.signal,
       });
 
@@ -283,6 +128,7 @@ export function useChatAPI(): UseChatAPIReturn {
       }
 
       const decoder = new TextDecoder();
+      const accumulatedChunks: string[] = [];
 
       while (true) {
         const { done, value } = await reader.read();
@@ -295,131 +141,200 @@ export function useChatAPI(): UseChatAPIReturn {
           if (line.startsWith("data: ")) {
             const data = line.slice(6);
             if (data === "[DONE]") {
-              setStatus("idle");
+              setStatus("ready");
               break;
             }
 
             try {
               const event = JSON.parse(data);
 
-              switch (event.type) {
-                case "text":
-                  setStatus("streaming");
-                  accumulatedTextRef.current += event.text;
-                  setStreamingText(accumulatedTextRef.current);
-                  break;
-
-                case "step-start":
-                  if (event.stepNumber > 1) {
-                    addEvent(event);
-                  }
-                  break;
-
-                case "tool-call":
-                  flushTextSegment();
-                  setStatus("tool-call");
-                  addEvent(event);
-                  break;
-
-                case "tool-result":
-                  addEvent(event);
-                  // Refresh files after tool results (file operations may have occurred)
-                  refreshFiles();
-                  break;
-
-                case "todos-changed":
-                  flushTextSegment();
-                  setStatus("tool-call");
-                  addEvent(event);
-                  // Update todos state for Queue component
-                  if (event.todos && Array.isArray(event.todos)) {
-                    setTodos(convertToQueueTodos(event.todos));
-                  }
-                  break;
-
-                case "done":
-                  flushTextSegment();
-                  setStatus("done");
-                  addEvent(event);
-                  break;
-
-                case "error":
-                  flushTextSegment();
-                  setStatus("error");
-                  addEvent(event);
-                  break;
-
-                default:
-                  addEvent(event);
-                  break;
+              // Handle different event types from the Elements adapter
+              // The protocol uses text-delta, tool-input-available, etc.
+              if (event.type === "text-delta" || event.type === "text") {
+                accumulatedChunks.push(event.text || event.delta || "");
+              } else if (event.type === "tool-input-available") {
+                // Tool call
+                console.log("Tool called:", event.toolName);
+              } else if (event.type === "tool-output-available") {
+                // Tool result
+                console.log("Tool result:", event.toolName);
+                // Refresh files after tool results (file operations may have occurred)
+                refreshFiles();
               }
             } catch (e) {
               console.error("Failed to parse SSE data:", data, e);
             }
           }
         }
-
-        setStatus("idle");
       }
+
+      // Add the complete response to messages in UI Message format
+      const timestamp = Date.now();
+      const userMessage = {
+        id: `msg-${timestamp}-user`,
+        role: "user" as const,
+        parts: [
+          {
+            type: "text" as const,
+            text: message.text,
+          },
+        ],
+      };
+
+      const assistantMessage = {
+        id: `msg-${timestamp}-assistant`,
+        role: "assistant" as const,
+        parts: [
+          {
+            type: "text" as const,
+            text: accumulatedChunks.join(""),
+          },
+        ],
+      };
+
+      setMessages((prev) => [...prev, userMessage, assistantMessage]);
+
+      setStatus("ready");
     } catch (err) {
       if ((err as Error).name === "AbortError") {
-        flushTextSegment();
-        setStatus("idle");
+        setStatus("ready");
       } else {
-        flushTextSegment();
+        console.error("Error sending message:", err);
         setStatus("error");
-        addEvent({ type: "error", error: String(err) });
       }
     } finally {
       abortControllerRef.current = null;
     }
-  };
+  }, [messages, refreshFiles]);
 
+  // Abort the current request
   const abort = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
-      setStatus("idle");
+      setStatus("ready");
     }
   }, []);
 
+  // Clear all messages
   const clear = useCallback(() => {
-    setEvents([]);
-    setStreamingText("");
+    setMessages([]);
     setTodos([]);
-    setStatus("idle");
+    setStatus("ready");
     // Refresh files on clear to show current state
     refreshFiles();
   }, [refreshFiles]);
 
-  // Convert agent status to UI status
-  const uiStatus = useMemo(() => mapAgentStatusToUIStatus(status), [status]);
-
-  // Convert events to UI messages
-  const uiMessages = useMemo(
-    () => convertEventsToUIMessages(events, streamingText, uiStatus),
-    [events, streamingText, uiStatus]
-  );
-
-  // Extract tool parts from current message
-  const toolParts = useMemo(() => extractToolParts(uiMessages), [uiMessages]);
-
-  // Convert tool parts to task parts
-  const taskParts = useMemo(
-    () => convertToolPartsToTasks(toolParts, uiStatus),
-    [toolParts, uiStatus]
-  );
+  // Extract task parts from tool calls in the messages
+  const taskParts = extractTaskPartsFromMessages(messages);
 
   return {
-    uiMessages,
-    uiStatus,
-    toolParts, // Keep for backward compatibility
-    taskParts,  // New: Task parts for Task component
-    todos,  // Todos for Queue component
-    sandboxId,  // Sandbox identifier for file explorer
-    filePaths,  // File paths in sandbox
+    uiMessages: messages,
+    uiStatus: status,
+    taskParts,
+    todos,
+    sandboxId,
+    filePaths,
     sendMessage,
     abort,
     clear,
-    refreshFiles,  // Function to manually refresh files
+    refreshFiles,
   };
+}
+
+/**
+ * Extract task parts from UI messages by grouping tool calls with their results
+ */
+function extractTaskPartsFromMessages(messages: any[]): any[] {
+  const toolMap = new Map<any, any>();
+
+  // Group tool calls and results
+  for (const msg of messages) {
+    if (msg.role === "assistant" && msg.parts) {
+      for (const part of msg.parts) {
+        if (part.type === "tool-call") {
+          toolMap.set(part.toolCallId, {
+            call: {
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              args: part.args,
+            },
+          });
+        } else if (part.type === "tool-result") {
+          const existing = toolMap.get(part.toolCallId);
+          if (existing) {
+            existing.result = {
+              result: part.result,
+              isError: part.isError,
+            };
+          }
+        }
+      }
+    }
+  }
+
+  // Convert to task parts
+  return Array.from(toolMap.values()).map(({ call, result }) => {
+    const items: any[] = [];
+
+    // Input item
+    if (call.args) {
+      items.push({
+        type: "input",
+        content: formatToolInput(call.toolName, call.args),
+        data: call.args,
+      });
+    }
+
+    // Determine status and add result item
+    let taskStatus: "pending" | "in_progress" | "completed" | "error" = "pending";
+    if (result) {
+      if (result.isError) {
+        taskStatus = "error";
+        items.push({
+          type: "error",
+          content: String(result.result),
+          data: result.result,
+        });
+      } else {
+        taskStatus = "completed";
+        items.push({
+          type: "result",
+          content: formatToolResult(result.result),
+          data: result.result,
+        });
+      }
+    } else {
+      taskStatus = "in_progress";
+      items.push({
+        type: "processing",
+        content: "Running...",
+      });
+    }
+
+    return {
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      status: taskStatus,
+      items,
+    };
+  });
+}
+
+function formatToolInput(_toolName: string, args: unknown): string {
+  if (typeof args === "object" && args !== null) {
+    const entries = Object.entries(args as Record<string, unknown>);
+    if (entries.length === 1) {
+      const [key, value] = entries[0];
+      return `Running with ${key}: ${JSON.stringify(value)}`;
+    }
+    return `Running with parameters`;
+  }
+  return `Running with: ${JSON.stringify(args)}`;
+}
+
+function formatToolResult(result: unknown): string {
+  if (typeof result === "object" && result !== null) {
+    return "Completed";
+  }
+  return `Completed: ${String(result)}`;
 }

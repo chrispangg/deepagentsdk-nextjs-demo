@@ -1,12 +1,20 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect } from "react";
 
-// Import the API-based chat hook
-import { useChatAPI, type PromptInputMessage, type TaskUIPart, type QueueTodo } from "@/lib/use-chat-api";
+// Import the new full-events chat hook
+import { useChatFullEvents } from "@/lib/use-chat-full-events";
 
 // Import FileExplorer for sandbox files
 import { FileExplorer } from "@/components/file-explorer/file-explorer";
+
+// Import event display components
+import {
+  FileEventDisplay,
+  CommandEventDisplay,
+  WebEventDisplay,
+  SubagentEventDisplay,
+} from "@/components/events";
 
 // Import ALL AI Elements components
 import {
@@ -90,13 +98,27 @@ import {
   XCircleIcon,
   PanelRightCloseIcon,
   PanelRightOpenIcon,
+  Terminal,
+  Globe,
+  Bot,
 } from "lucide-react";
 
 export default function ValidationPage() {
 
-  // Use the API-based chat hook (deepagentsdk runs server-side in /api/chat)
-  const { uiMessages, uiStatus, taskParts, todos, sandboxId, filePaths, sendMessage, abort, clear, refreshFiles } =
-    useChatAPI();
+  // Use the new full-events chat hook (deepagentsdk runs server-side in /api/chat)
+  const {
+    uiMessages,
+    uiStatus,
+    taskParts,
+    todos,
+    sandboxId,
+    filePaths,
+    sendMessage,
+    abort,
+    clear,
+    clearEvents,
+    refreshFiles,
+  } = useChatFullEvents();
 
   // State for showing/hiding file explorer
   const [showFileExplorer, setShowFileExplorer] = useState(true);
@@ -106,13 +128,14 @@ export default function ValidationPage() {
     refreshFiles();
   }, [refreshFiles]);
 
+  // Handle clear events
+  const handleClearEvents = () => {
+    clearEvents();
+  };
+
   // Handle message submission
-  const handleSubmit = async (message: InputMessage) => {
-    // Convert PromptInputMessage to our adapter format
-    const adapterMessage: PromptInputMessage = {
-      text: message.text,
-    };
-    await sendMessage(adapterMessage);
+  const handleSubmitMessage = async (message: InputMessage) => {
+    await sendMessage({ text: message.text });
   };
 
   return (
@@ -142,11 +165,11 @@ export default function ValidationPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={clear}
+                  onClick={handleClearEvents}
                   disabled={uiMessages.length === 0}
                 >
                   <TrashIcon className="mr-2 size-4" />
-                  Clear
+                  Clear Events
                 </Button>
               </div>
             </div>
@@ -160,7 +183,7 @@ export default function ValidationPage() {
                   {uiMessages.length === 0 ? (
                     <ConversationEmptyState
                       title="deepagentsdk demo"
-                      description="This app validates the deepagentsdk elements adapter with real API calls. Try asking about weather, calculating something, or searching for information."
+                      description="This app validates the deepagentsdk full-events handler with all 26 event types. Try asking to create files, run commands, search the web, or use subagents."
                       icon={<MessageSquareIcon className="size-8" />}
                     />
                   ) : (
@@ -168,7 +191,7 @@ export default function ValidationPage() {
                       {uiMessages.map((msg) => (
                         <Message key={msg.id} from={msg.role}>
                           <MessageContent>
-                            {msg.parts.map((part, idx) => {
+                            {msg.parts.map((part: any, idx: number) => {
                               if (part.type === "text") {
                                 return (
                                   <MessageResponse key={idx}>
@@ -205,7 +228,7 @@ export default function ValidationPage() {
                                       </div>
                                     </TaskTrigger>
                                     <TaskContent>
-                                      {task.items.map((item, itemIdx) => (
+                                      {task.items.map((item: any, itemIdx: number) => (
                                         <TaskItem key={itemIdx}>
                                           {item.type === "input" && (
                                             <span className="text-muted-foreground">{item.content}</span>
@@ -235,6 +258,41 @@ export default function ValidationPage() {
                                 );
                               }
 
+                              // File events (actual event types)
+                              if ([
+                                'file-write-start',
+                                'file-written',
+                                'file-edited',
+                                'file-read',
+                                'ls',
+                                'glob',
+                                'grep'
+                              ].includes(part.type)) {
+                                return <FileEventDisplay key={idx} event={part} />;
+                              }
+
+                              // Command events
+                              if (['execute-start', 'execute-finish'].includes(part.type)) {
+                                return <CommandEventDisplay key={idx} event={part} />;
+                              }
+
+                              // Web events
+                              if ([
+                                'web-search-start',
+                                'web-search-finish',
+                                'http-request-start',
+                                'http-request-finish',
+                                'fetch-url-start',
+                                'fetch-url-finish'
+                              ].includes(part.type)) {
+                                return <WebEventDisplay key={idx} event={part} />;
+                              }
+
+                              // Subagent events
+                              if (['subagent-start', 'subagent-finish', 'subagent-step'].includes(part.type)) {
+                                return <SubagentEventDisplay key={idx} event={part} />;
+                              }
+
                               return null;
                             })}
                           </MessageContent>
@@ -246,8 +304,8 @@ export default function ValidationPage() {
                                   tooltip="Copy"
                                   onClick={() => {
                                     const text = msg.parts
-                                      .filter((p) => p.type === "text")
-                                      .map((p) => (p as { text: string }).text)
+                                      .filter((p: any) => p.type === "text")
+                                      .map((p: any) => (p as { text: string }).text)
                                       .join("\n");
                                     navigator.clipboard.writeText(text);
                                   }}
@@ -319,7 +377,7 @@ export default function ValidationPage() {
                   )}
 
                   <PromptInput
-                    onSubmit={handleSubmit}
+                    onSubmit={handleSubmitMessage}
                     accept="image/*"
                     multiple
                   >
@@ -328,7 +386,7 @@ export default function ValidationPage() {
                         <PromptInputAttachment data={attachment} />
                       )}
                     </PromptInputAttachments>
-                    <PromptInputTextarea placeholder="Ask about weather, calculate something, or search..." />
+                    <PromptInputTextarea placeholder="Create files, run commands, search the web, or use subagents..." />
                     <PromptInputFooter>
                       <PromptInputTools>
                         <PromptInputActionMenu>
@@ -342,7 +400,7 @@ export default function ValidationPage() {
                             </PromptInputActionMenuItem>
                             <PromptInputActionMenuItem>
                               <WrenchIcon className="mr-2 size-4" />
-                              Available tools: weather, calculate, search
+                              Available tools: execute, web search, subagents
                             </PromptInputActionMenuItem>
                           </PromptInputActionMenuContent>
                         </PromptInputActionMenu>
