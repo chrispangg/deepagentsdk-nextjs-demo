@@ -1,5 +1,5 @@
 import { createDeepAgent, LocalSandbox } from "deepagentsdk";
-import { createFullEventsHandler } from "@/lib/create-full-events-handler";
+import { createElementsRouteHandler } from "deepagentsdk/elements";
 import { anthropic } from "@ai-sdk/anthropic";
 import * as fs from "fs";
 import * as path from "path";
@@ -44,8 +44,8 @@ When creating projects:
 Be helpful and concise. Demonstrate tool usage when appropriate.`,
 });
 
-// Export the route handler - creates Elements-compatible streaming endpoint with all 26 events
-export const POST = createFullEventsHandler({
+// Export the route handler - uses built-in Elements adapter with full event streaming
+export const POST = createElementsRouteHandler({
   agent,
 
   // Optional: Hook for authentication, logging, rate limiting

@@ -3,7 +3,7 @@
  *
  * This hook directly calls the /api/chat endpoint and processes the streaming events.
  * The server-side uses createElementsRouteHandler from deepagentsdk/elements which
- * streams responses in the AI SDK UI Message Stream Protocol.
+ * streams responses in the AI SDK UI Message Stream Protocol with full event visibility.
  */
 
 import { useState, useCallback, useRef, useEffect } from "react";
@@ -38,8 +38,8 @@ export interface UseChatAPIReturn {
 /**
  * Hook that calls the deepagentsdk API via /api/chat endpoint
  *
- * The server-side route uses createElementsRouteHandler which streams
- * responses in the AI SDK UI Message Stream Protocol.
+ * The server-side route uses createElementsRouteHandler from deepagentsdk/elements
+ * which streams responses in the AI SDK UI Message Stream Protocol with full event visibility.
  */
 export function useChatAPI(): UseChatAPIReturn {
   // Use a constant sandbox ID for the local sandbox
