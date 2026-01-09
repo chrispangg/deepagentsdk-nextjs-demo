@@ -58,7 +58,6 @@ import {
   TaskTrigger,
   TaskContent,
   TaskItem,
-  TaskItemFile,
 } from "@/components/ai-elements/task";
 
 import {
@@ -67,15 +66,12 @@ import {
   QueueItemAction,
   QueueItemActions,
   QueueItemContent,
-  QueueItemDescription,
   QueueItemIndicator,
   QueueSection,
   QueueSectionContent,
 } from "@/components/ai-elements/queue";
 
 import { Loader } from "@/components/ai-elements/loader";
-import { CodeBlock } from "@/components/ai-elements/code-block";
-import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   CheckIcon,
@@ -99,7 +95,6 @@ export default function ValidationPage() {
     filePaths,
     sendMessage,
     abort,
-    clear,
     refreshFiles,
   } = useChatFullEvents();
 
@@ -118,11 +113,12 @@ export default function ValidationPage() {
       <PromptInputProvider>
         <div className="flex h-screen flex-col bg-background">
           {/* Header */}
-          <header className="border-b p-4">
-            <div className="mx-auto flex max-w-4xl items-center justify-between">
-              <h1 className="text-xl font-semibold">
-                deepagentsdk demo
+          <header className="border-b border-[var(--home-border-secondary)] bg-[var(--home-bg-elevated)] backdrop-blur-sm p-6">
+            <div className="mx-auto flex max-w-4xl items-center gap-4">
+              <h1 className="font-[family-name:var(--font-ibm-plex-mono)] text-sm uppercase tracking-widest text-[var(--home-text-primary)] font-semibold">
+                &gt; ./deepagentsdk demo
               </h1>
+              <div className="flex-1 h-px bg-[var(--home-border-secondary)]" />
             </div>
           </header>
 
@@ -135,7 +131,7 @@ export default function ValidationPage() {
                     <ConversationEmptyState
                       title="deepagentsdk demo"
                       description="This app validates the deepagentsdk full-events handler with all 26 event types. Try asking to create files, run commands, search the web, or use subagents."
-                      icon={<MessageSquareIcon className="size-8" />}
+                      icon={<MessageSquareIcon className="size-8 text-[var(--home-text-muted)]" />}
                     />
                   ) : (
                     <>
@@ -341,6 +337,7 @@ export default function ValidationPage() {
                     </PromptInputAttachments>
                     <PromptInputTextarea
                       placeholder="Create files, run commands, search the web, or use subagents..."
+                      className="font-[family-name:var(--font-ibm-plex-mono)] text-sm"
                       disabled={uiStatus === "streaming" || uiStatus === "submitted"}
                     />
                     <PromptInputFooter>
