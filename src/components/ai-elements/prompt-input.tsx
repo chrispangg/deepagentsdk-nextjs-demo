@@ -718,9 +718,10 @@ export const PromptInput = ({
           return (formData.get("message") as string) || "";
         })();
 
-    // Reset form immediately after capturing text to avoid race condition
-    // where user input during async blob conversion would be lost
-    if (!usingProvider) {
+    // Clear input IMMEDIATELY to provide instant feedback
+    if (usingProvider) {
+      controller.textInput.clear();
+    } else {
       form.reset();
     }
 
@@ -747,26 +748,20 @@ export const PromptInput = ({
             result
               .then(() => {
                 clear();
-                if (usingProvider) {
-                  controller.textInput.clear();
-                }
               })
               .catch(() => {
-                // Don't clear on error - user may want to retry
+                // Don't clear attachments on error - user may want to retry
               });
           } else {
             // Sync function completed without throwing, clear attachments
             clear();
-            if (usingProvider) {
-              controller.textInput.clear();
-            }
           }
         } catch {
-          // Don't clear on error - user may want to retry
+          // Don't clear attachments on error - user may want to retry
         }
       })
       .catch(() => {
-        // Don't clear on error - user may want to retry
+        // Don't clear attachments on error - user may want to retry
       });
   };
 

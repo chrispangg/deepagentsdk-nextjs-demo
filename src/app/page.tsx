@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 
 // Import the new full-events chat hook
 import { useChatFullEvents } from "@/lib/use-chat-full-events";
@@ -39,12 +39,6 @@ import {
   PromptInputTextarea,
   PromptInputSubmit,
   PromptInputFooter,
-  PromptInputTools,
-  PromptInputButton,
-  PromptInputActionMenu,
-  PromptInputActionMenuTrigger,
-  PromptInputActionMenuContent,
-  PromptInputActionMenuItem,
   PromptInputAttachments,
   PromptInputAttachment,
   type PromptInputMessage as InputMessage,
@@ -87,20 +81,10 @@ import {
   CheckIcon,
   CopyIcon,
   RotateCcwIcon,
-  TrashIcon,
   Trash2,
   MessageSquareIcon,
-  PlusIcon,
-  MicIcon,
-  FileTextIcon,
-  WrenchIcon,
   SearchIcon,
   XCircleIcon,
-  PanelRightCloseIcon,
-  PanelRightOpenIcon,
-  Terminal,
-  Globe,
-  Bot,
 } from "lucide-react";
 
 export default function ValidationPage() {
@@ -116,22 +100,13 @@ export default function ValidationPage() {
     sendMessage,
     abort,
     clear,
-    clearEvents,
     refreshFiles,
   } = useChatFullEvents();
-
-  // State for showing/hiding file explorer
-  const [showFileExplorer, setShowFileExplorer] = useState(true);
 
   // Refresh files on initial load
   useEffect(() => {
     refreshFiles();
   }, [refreshFiles]);
-
-  // Handle clear events
-  const handleClearEvents = () => {
-    clearEvents();
-  };
 
   // Handle message submission
   const handleSubmitMessage = async (message: InputMessage) => {
@@ -148,30 +123,6 @@ export default function ValidationPage() {
               <h1 className="text-xl font-semibold">
                 deepagentsdk demo
               </h1>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowFileExplorer(!showFileExplorer)}
-                  title={showFileExplorer ? "Hide file explorer" : "Show file explorer"}
-                >
-                  {showFileExplorer ? (
-                    <PanelRightCloseIcon className="mr-2 size-4" />
-                  ) : (
-                    <PanelRightOpenIcon className="mr-2 size-4" />
-                  )}
-                  Files
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleClearEvents}
-                  disabled={uiMessages.length === 0}
-                >
-                  <TrashIcon className="mr-2 size-4" />
-                  Clear Events
-                </Button>
-              </div>
             </div>
           </header>
 
@@ -188,7 +139,7 @@ export default function ValidationPage() {
                     />
                   ) : (
                     <>
-                      {uiMessages.map((msg) => (
+                      {uiMessages.map((msg, msgIndex) => (
                         <Message key={msg.id} from={msg.role}>
                           <MessageContent>
                             {msg.parts.map((part: any, idx: number) => {
@@ -295,6 +246,18 @@ export default function ValidationPage() {
 
                               return null;
                             })}
+
+                            {/* Show loader at the end of the last assistant message when processing */}
+                            {msg.role === "assistant" &&
+                             msgIndex === uiMessages.length - 1 &&
+                             (uiStatus === "streaming" || uiStatus === "submitted") && (
+                              <div className="flex items-center gap-2 text-muted-foreground mt-2">
+                                <Loader size={16} />
+                                <span className="text-sm">
+                                  {uiStatus === "submitted" ? "Thinking..." : "Generating response..."}
+                                </span>
+                              </div>
+                            )}
                           </MessageContent>
 
                           {msg.role === "assistant" && (
@@ -320,16 +283,6 @@ export default function ValidationPage() {
                           )}
                         </Message>
                       ))}
-
-                      {/* Show loader when processing */}
-                      {(uiStatus === "streaming" || uiStatus === "submitted") && (
-                        <div className="flex items-center gap-2 text-muted-foreground p-4">
-                          <Loader size={16} />
-                          <span className="text-sm">
-                            {uiStatus === "submitted" ? "Thinking..." : "Generating response..."}
-                          </span>
-                        </div>
-                      )}
                     </>
                   )}
                 </ConversationContent>
@@ -386,28 +339,11 @@ export default function ValidationPage() {
                         <PromptInputAttachment data={attachment} />
                       )}
                     </PromptInputAttachments>
-                    <PromptInputTextarea placeholder="Create files, run commands, search the web, or use subagents..." />
+                    <PromptInputTextarea
+                      placeholder="Create files, run commands, search the web, or use subagents..."
+                      disabled={uiStatus === "streaming" || uiStatus === "submitted"}
+                    />
                     <PromptInputFooter>
-                      <PromptInputTools>
-                        <PromptInputActionMenu>
-                          <PromptInputActionMenuTrigger>
-                            <PlusIcon className="size-4" />
-                          </PromptInputActionMenuTrigger>
-                          <PromptInputActionMenuContent>
-                            <PromptInputActionMenuItem>
-                              <FileTextIcon className="mr-2 size-4" />
-                              Upload file
-                            </PromptInputActionMenuItem>
-                            <PromptInputActionMenuItem>
-                              <WrenchIcon className="mr-2 size-4" />
-                              Available tools: execute, web search, subagents
-                            </PromptInputActionMenuItem>
-                          </PromptInputActionMenuContent>
-                        </PromptInputActionMenu>
-                        <PromptInputButton>
-                          <MicIcon className="size-4" />
-                        </PromptInputButton>
-                      </PromptInputTools>
                       <PromptInputSubmit
                         status={uiStatus}
                         disabled={uiStatus === "streaming" || uiStatus === "submitted"}
@@ -422,15 +358,13 @@ export default function ValidationPage() {
             </main>
 
             {/* File Explorer Panel - takes remaining 2/3 of screen */}
-            {showFileExplorer && (
-              <aside className="flex flex-1 flex-col bg-background">
-                <FileExplorer
-                  className="flex-1"
-                  paths={filePaths}
-                  sandboxId={sandboxId}
-                />
-              </aside>
-            )}
+            <aside className="flex flex-1 flex-col bg-background">
+              <FileExplorer
+                className="flex-1"
+                paths={filePaths}
+                sandboxId={sandboxId}
+              />
+            </aside>
           </div>
         </div>
       </PromptInputProvider>
