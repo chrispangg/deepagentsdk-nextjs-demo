@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 // Import the new full-events chat hook
 import { useChatFullEvents } from "@/lib/use-chat-full-events";
@@ -81,9 +81,19 @@ import {
   MessageSquareIcon,
   SearchIcon,
   XCircleIcon,
+  Settings as SettingsIcon,
+  X,
+  Lock as LockIcon,
 } from "lucide-react";
+import { ApiSettings } from "@/components/settings/api-settings";
+import { ModelSelector } from "@/components/settings/model-selector";
+import { useSettings } from "@/components/settings/use-settings";
+import { motion, AnimatePresence } from "motion/react";
 
 export default function ValidationPage() {
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const settingsStore = useSettings();
 
   // Use the new full-events chat hook (deepagentsdk runs server-side in /api/chat)
   const {
@@ -93,6 +103,7 @@ export default function ValidationPage() {
     todos,
     sandboxId,
     filePaths,
+    errorMessage,
     sendMessage,
     abort,
     refreshFiles,
@@ -102,6 +113,19 @@ export default function ValidationPage() {
   useEffect(() => {
     refreshFiles();
   }, [refreshFiles]);
+
+  // Initialize server config and auto-open settings if no keys
+  useEffect(() => {
+    const initAndCheck = async () => {
+      await settingsStore.initializeFromServer();
+      setIsInitialized(true);
+      // Auto-open settings panel if no API keys are configured
+      if (!settingsStore.hasAnyApiKey()) {
+        setIsSettingsOpen(true);
+      }
+    };
+    initAndCheck();
+  }, []); // Run only once on mount
 
   // Handle message submission
   const handleSubmitMessage = async (message: InputMessage) => {
@@ -119,7 +143,41 @@ export default function ValidationPage() {
                 &gt; ./deepagentsdk demo
               </h1>
               <div className="flex-1 h-px bg-[var(--home-border-secondary)]" />
+              <button
+                onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+                className="p-2 text-[var(--home-text-muted)] hover:text-[var(--home-text-primary)] hover:bg-[var(--home-bg-card)] border border-transparent hover:border-[var(--home-border-secondary)] transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
+              >
+                <SettingsIcon className="size-4" />
+              </button>
             </div>
+
+            {/* Settings Panel */}
+            <AnimatePresence>
+              {isSettingsOpen && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                  className="mt-4"
+                >
+                  <div className="border border-[var(--home-border-secondary)] bg-[var(--home-bg-card)] p-6 shadow-[0_2px_8px_rgba(0,0,0,0.4)]">
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="font-[family-name:var(--font-ibm-plex-mono)] text-xs uppercase tracking-widest text-[var(--home-text-primary)] font-semibold">
+                        &gt; ./api-config
+                      </h2>
+                      <button
+                        onClick={() => setIsSettingsOpen(false)}
+                        className="p-1 text-[var(--home-text-muted)] hover:text-[var(--home-text-primary)] transition-colors duration-200"
+                      >
+                        <X className="size-4" />
+                      </button>
+                    </div>
+                    <ApiSettings />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </header>
 
           <div className="flex flex-1 overflow-hidden">
@@ -288,6 +346,44 @@ export default function ValidationPage() {
               {/* Prompt input area */}
               <div className="border-t p-4">
                 <div className="mx-auto max-w-4xl">
+                  {/* Error Message */}
+                  {errorMessage && (
+                    <div className="mb-4 p-4 border border-[var(--home-border-primary)] border-l-2 border-l-red-600 bg-[var(--home-bg-card)]">
+                      <div className="flex items-start gap-3">
+                        <XCircleIcon className="size-5 text-red-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1">
+                          <h3 className="text-sm font-semibold text-[var(--home-text-primary)] font-[family-name:var(--font-ibm-plex-mono)] uppercase tracking-wider mb-1">
+                            Error
+                          </h3>
+                          <p className="text-xs text-[var(--home-text-secondary)] font-light leading-relaxed">
+                            {errorMessage}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* API Key Warning */}
+                  {isInitialized && !settingsStore.hasAnyApiKey() && (
+                    <div className="mb-4 p-4 border border-[var(--home-border-primary)] border-l-2 border-l-orange-600 bg-[var(--home-bg-card)]">
+                      <div className="flex items-start gap-3">
+                        <LockIcon className="size-5 text-orange-600 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1">
+                          <h3 className="text-sm font-semibold text-[var(--home-text-primary)] font-[family-name:var(--font-ibm-plex-mono)] uppercase tracking-wider mb-1">
+                            API Key Required
+                          </h3>
+                          <p className="text-xs text-[var(--home-text-secondary)] font-light leading-relaxed mb-2">
+                            Please configure an API key to start chatting. You can either:
+                          </p>
+                          <ul className="text-xs text-[var(--home-text-secondary)] font-light space-y-1 list-disc list-inside">
+                            <li>Add keys to your <code className="px-1.5 py-0.5 bg-[var(--home-bg-elevated)] border border-[var(--home-border-secondary)] text-[var(--home-accent)] font-[family-name:var(--font-ibm-plex-mono)]">.env</code> file (server-side)</li>
+                            <li>Click the <span className="font-[family-name:var(--font-ibm-plex-mono)]">⚙️</span> icon above to enter your own keys (client-side)</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Queue component for displaying todos */}
                   {todos.length > 0 && (
                     <Queue className="mb-2 max-h-[150px] overflow-y-auto rounded-b-none border-input border-b-0">
@@ -336,18 +432,37 @@ export default function ValidationPage() {
                       )}
                     </PromptInputAttachments>
                     <PromptInputTextarea
-                      placeholder="Create files, run commands, search the web, or use subagents..."
+                      placeholder={
+                        !isInitialized
+                          ? "Loading configuration..."
+                          : settingsStore.hasAnyApiKey()
+                          ? "Create files, run commands, search the web, or use subagents..."
+                          : "Configure an API key to start chatting..."
+                      }
                       className="font-[family-name:var(--font-ibm-plex-mono)] text-sm"
-                      disabled={uiStatus === "streaming" || uiStatus === "submitted"}
+                      disabled={
+                        uiStatus === "streaming" ||
+                        uiStatus === "submitted" ||
+                        !isInitialized ||
+                        !settingsStore.hasAnyApiKey()
+                      }
                     />
                     <PromptInputFooter>
-                      <PromptInputSubmit
-                        status={uiStatus}
-                        disabled={uiStatus === "streaming" || uiStatus === "submitted"}
-                        onClick={
-                          uiStatus === "streaming" ? abort : undefined
-                        }
-                      />
+                      <div className="flex items-center justify-between w-full">
+                        <ModelSelector />
+                        <PromptInputSubmit
+                          status={uiStatus}
+                          disabled={
+                            uiStatus === "streaming" ||
+                            uiStatus === "submitted" ||
+                            !isInitialized ||
+                            !settingsStore.hasAnyApiKey()
+                          }
+                          onClick={
+                            uiStatus === "streaming" ? abort : undefined
+                          }
+                        />
+                      </div>
                     </PromptInputFooter>
                   </PromptInput>
                 </div>

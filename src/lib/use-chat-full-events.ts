@@ -65,6 +65,7 @@ export interface UseChatFullEventsReturn {
   todos: any[];
   sandboxId: string;
   filePaths: string[];
+  errorMessage: string | null;
 
   // Actions
   sendMessage: (message: { text: string }) => Promise<void>;
@@ -89,6 +90,7 @@ export function useChatFullEvents(): UseChatFullEventsReturn {
   const [messages, setMessages] = useState<any[]>([]);
   const [status, setStatus] = useState<UIStatusState>("ready");
   const [todos, setTodos] = useState<any[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const currentMessageIdRef = useRef<string | null>(null);
@@ -218,6 +220,7 @@ export function useChatFullEvents(): UseChatFullEventsReturn {
 
     // Reset for new generation
     setStatus("streaming");
+    setErrorMessage(null); // Clear any previous errors
     abortControllerRef.current = new AbortController();
 
     // Convert messages to AI SDK UI Message format
@@ -266,6 +269,15 @@ export function useChatFullEvents(): UseChatFullEventsReturn {
     ]);
 
     try {
+      // Import settings dynamically to avoid circular dependencies
+      const { useSettings } = await import("@/components/settings/use-settings");
+      const settings = useSettings.getState();
+
+      // Helper function to convert [FROM_SERVER] markers to empty strings for the server
+      const prepareKeyForServer = (key: string) => {
+        return key === "[FROM_SERVER]" ? "" : key;
+      };
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
@@ -273,12 +285,30 @@ export function useChatFullEvents(): UseChatFullEventsReturn {
         },
         body: JSON.stringify({
           messages: uiMessages,
+          settings: {
+            anthropicApiKey: prepareKeyForServer(settings.anthropicApiKey),
+            anthropicBaseUrl: settings.anthropicBaseUrl,
+            tavilyApiKey: prepareKeyForServer(settings.tavilyApiKey),
+            openaiApiKey: prepareKeyForServer(settings.openaiApiKey),
+            selectedProvider: settings.selectedProvider,
+            selectedModel: settings.selectedModel,
+            useServerDefaults: settings.useServerDefaults,
+          },
         }),
         signal: abortControllerRef.current.signal,
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        let errorMessage = `HTTP error! status: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        } catch (e) {
+          // If we can't parse the error, use the default message
+        }
+        throw new Error(errorMessage);
       }
 
       const reader = response.body?.getReader();
@@ -358,6 +388,7 @@ export function useChatFullEvents(): UseChatFullEventsReturn {
       if (error.name !== "AbortError") {
         console.error("Chat error:", error);
         setStatus("error");
+        setErrorMessage(error.message || "An unexpected error occurred");
       } else {
         setStatus("ready");
       }
@@ -489,6 +520,7 @@ export function useChatFullEvents(): UseChatFullEventsReturn {
     todos,
     sandboxId,
     filePaths,
+    errorMessage,
     sendMessage,
     abort,
     clear,
