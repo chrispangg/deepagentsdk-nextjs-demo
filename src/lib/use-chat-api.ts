@@ -54,7 +54,12 @@ export function useChatAPI(): UseChatAPIReturn {
   // Function to refresh file list from sandbox
   const refreshFiles = useCallback(async () => {
     try {
-      const response = await fetch(`/api/sandboxes/${sandboxId}/files`);
+      // Get sandbox type from settings
+      const { useSettings } = await import("@/components/settings/use-settings");
+      const settings = useSettings.getState();
+      const sandboxType = settings.sandboxType || "local";
+      
+      const response = await fetch(`/api/sandboxes/${sandboxId}/files?sandboxType=${sandboxType}`);
       if (response.ok) {
         const data = await response.json();
         if (data.files && Array.isArray(data.files)) {
@@ -107,6 +112,15 @@ export function useChatAPI(): UseChatAPIReturn {
     });
 
     try {
+      // Import settings dynamically to avoid circular dependencies
+      const { useSettings } = await import("@/components/settings/use-settings");
+      const settings = useSettings.getState();
+
+      // Helper function to convert [FROM_SERVER] markers to empty strings for the server
+      const prepareKeyForServer = (key: string) => {
+        return key === "[FROM_SERVER]" ? "" : key;
+      };
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
@@ -114,6 +128,17 @@ export function useChatAPI(): UseChatAPIReturn {
         },
         body: JSON.stringify({
           messages: uiMessages,
+          settings: {
+            anthropicApiKey: prepareKeyForServer(settings.anthropicApiKey),
+            anthropicBaseUrl: settings.anthropicBaseUrl,
+            tavilyApiKey: prepareKeyForServer(settings.tavilyApiKey),
+            openaiApiKey: prepareKeyForServer(settings.openaiApiKey),
+            e2bApiKey: prepareKeyForServer(settings.e2bApiKey),
+            selectedProvider: settings.selectedProvider,
+            selectedModel: settings.selectedModel,
+            sandboxType: settings.sandboxType,
+            useServerDefaults: settings.useServerDefaults,
+          },
         }),
         signal: abortControllerRef.current.signal,
       });

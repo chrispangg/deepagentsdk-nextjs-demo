@@ -98,7 +98,12 @@ export function useChatFullEvents(): UseChatFullEventsReturn {
   // Function to refresh file list from sandbox
   const refreshFiles = useCallback(async () => {
     try {
-      const response = await fetch(`/api/sandboxes/${sandboxId}/files`);
+      // Get sandbox type from settings
+      const { useSettings } = await import("@/components/settings/use-settings");
+      const settings = useSettings.getState();
+      const sandboxType = settings.sandboxType || "local";
+      
+      const response = await fetch(`/api/sandboxes/${sandboxId}/files?sandboxType=${sandboxType}`);
       if (response.ok) {
         const data = await response.json();
         if (data.files && Array.isArray(data.files)) {
@@ -290,8 +295,10 @@ export function useChatFullEvents(): UseChatFullEventsReturn {
             anthropicBaseUrl: settings.anthropicBaseUrl,
             tavilyApiKey: prepareKeyForServer(settings.tavilyApiKey),
             openaiApiKey: prepareKeyForServer(settings.openaiApiKey),
+            e2bApiKey: prepareKeyForServer(settings.e2bApiKey),
             selectedProvider: settings.selectedProvider,
             selectedModel: settings.selectedModel,
+            sandboxType: settings.sandboxType,
             useServerDefaults: settings.useServerDefaults,
           },
         }),

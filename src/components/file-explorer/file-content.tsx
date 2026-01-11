@@ -1,7 +1,8 @@
-import { memo, useEffect } from "react";
+import { memo, useEffect, useMemo } from "react";
 import { PulseLoader } from "react-spinners";
 import useSWR from "swr";
 import { useFileHistory } from "@/app/state";
+import { useSettings } from "@/components/settings/use-settings";
 import { DiffViewer } from "./diff-viewer";
 import { FileEditor } from "./file-editor";
 import { MonacoSyntaxHighlighter } from "./monaco-syntax-highlighter";
@@ -29,7 +30,16 @@ export const FileContent = memo(function FileContent({
 	const captureOriginalBeforeAI = useFileHistory(
 		(state) => state.captureOriginalBeforeAI,
 	);
-	const searchParams = new URLSearchParams({ path });
+	const sandboxType = useSettings((state) => state.sandboxType);
+	
+	const searchParams = useMemo(() => {
+		const params = new URLSearchParams({ path });
+		if (sandboxType) {
+			params.set("sandboxType", sandboxType);
+		}
+		return params;
+	}, [path, sandboxType]);
+	
 	const content = useSWR(
 		`/api/sandboxes/${sandboxId}/files?${searchParams.toString()}`,
 		async (pathname: string, init: RequestInit) => {

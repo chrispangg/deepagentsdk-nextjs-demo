@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type ModelProvider = "anthropic" | "openai";
+export type SandboxType = "local" | "e2b";
 
 export interface Model {
   id: string;
@@ -14,6 +15,8 @@ export interface ServerConfig {
   anthropicBaseUrl: string;
   hasTavilyApiKey: boolean;
   hasOpenaiApiKey: boolean;
+  hasE2bApiKey: boolean;
+  isCloudEnvironment: boolean;
 }
 
 interface ApiSettings {
@@ -21,9 +24,12 @@ interface ApiSettings {
   anthropicBaseUrl: string;
   tavilyApiKey: string;
   openaiApiKey: string;
+  e2bApiKey: string;
   selectedProvider: ModelProvider;
   selectedModel: string;
+  sandboxType: SandboxType;
   useServerDefaults: boolean; // New flag to track if using .env defaults
+  isCloudEnvironment: boolean; // Track if running in cloud
 }
 
 interface ApiSettingsStore extends ApiSettings {
@@ -31,11 +37,15 @@ interface ApiSettingsStore extends ApiSettings {
   setAnthropicBaseUrl: (url: string) => void;
   setTavilyApiKey: (key: string) => void;
   setOpenaiApiKey: (key: string) => void;
+  setE2bApiKey: (key: string) => void;
   setSelectedProvider: (provider: ModelProvider) => void;
   setSelectedModel: (model: string) => void;
+  setSandboxType: (type: SandboxType) => void;
   resetSettings: () => void;
   hasApiKey: (provider: ModelProvider) => boolean;
   hasAnyApiKey: () => boolean;
+  hasE2bApiKey: () => boolean;
+  canUseLocalSandbox: () => boolean;
   initializeFromServer: () => Promise<void>;
 }
 
@@ -44,9 +54,12 @@ const DEFAULT_SETTINGS: ApiSettings = {
   anthropicBaseUrl: "https://api.anthropic.com/v1",
   tavilyApiKey: "",
   openaiApiKey: "",
+  e2bApiKey: "",
   selectedProvider: "anthropic",
   selectedModel: "anthropic/claude-sonnet-4-5-20250929",
+  sandboxType: "local", // Will be updated based on environment
   useServerDefaults: true, // Default to using server defaults
+  isCloudEnvironment: false,
 };
 
 export const useSettings = create<ApiSettingsStore>()(
@@ -62,6 +75,16 @@ export const useSettings = create<ApiSettingsStore>()(
 
       setOpenaiApiKey: (key) => set({ openaiApiKey: key, useServerDefaults: false }),
 
+      setE2bApiKey: (key) => {
+        const state = get();
+        set({ 
+          e2bApiKey: key, 
+          useServerDefaults: false,
+          // Auto-switch to E2B when user provides key
+          sandboxType: key ? "e2b" : (state.isCloudEnvironment ? "e2b" : "local"),
+        });
+      },
+
       setSelectedProvider: (provider) =>
         set((state) => ({
           selectedProvider: provider,
@@ -73,6 +96,8 @@ export const useSettings = create<ApiSettingsStore>()(
         })),
 
       setSelectedModel: (model) => set({ selectedModel: model }),
+
+      setSandboxType: (type) => set({ sandboxType: type }),
 
       resetSettings: () => set(DEFAULT_SETTINGS),
 
@@ -96,6 +121,17 @@ export const useSettings = create<ApiSettingsStore>()(
         return !!state.anthropicApiKey || !!state.openaiApiKey;
       },
 
+      hasE2bApiKey: () => {
+        const state = get();
+        return !!state.e2bApiKey && state.e2bApiKey !== "[FROM_SERVER]" || state.e2bApiKey === "[FROM_SERVER]";
+      },
+
+      canUseLocalSandbox: () => {
+        const state = get();
+        // Can only use local sandbox in local environment
+        return !state.isCloudEnvironment;
+      },
+
       initializeFromServer: async () => {
         try {
           const response = await fetch("/api/config");
@@ -109,6 +145,20 @@ export const useSettings = create<ApiSettingsStore>()(
           const hasUserAnthropicKey = state.anthropicApiKey && state.anthropicApiKey !== "[FROM_SERVER]";
           const hasUserOpenaiKey = state.openaiApiKey && state.openaiApiKey !== "[FROM_SERVER]";
           const hasUserTavilyKey = state.tavilyApiKey && state.tavilyApiKey !== "[FROM_SERVER]";
+          const hasUserE2bKey = state.e2bApiKey && state.e2bApiKey !== "[FROM_SERVER]";
+
+          // Determine sandbox type based on environment and available keys
+          const hasE2bKey = hasUserE2bKey || config.hasE2bApiKey;
+          let sandboxType: SandboxType;
+          
+          if (config.isCloudEnvironment) {
+            // In cloud, always use E2B (local not available)
+            sandboxType = "e2b";
+          } else {
+            // In local, use E2B if key available and user hasn't explicitly chosen local
+            // Default to local if no E2B key
+            sandboxType = hasE2bKey ? state.sandboxType : "local";
+          }
 
           // Always update state based on server config - this ensures stale [FROM_SERVER]
           // markers are cleared when keys are removed from .env
@@ -117,7 +167,10 @@ export const useSettings = create<ApiSettingsStore>()(
             anthropicBaseUrl: config.anthropicBaseUrl,
             tavilyApiKey: hasUserTavilyKey ? state.tavilyApiKey : (config.hasTavilyApiKey ? "[FROM_SERVER]" : ""),
             openaiApiKey: hasUserOpenaiKey ? state.openaiApiKey : (config.hasOpenaiApiKey ? "[FROM_SERVER]" : ""),
-            useServerDefaults: !hasUserAnthropicKey && !hasUserOpenaiKey && !hasUserTavilyKey && (config.hasAnthropicApiKey || config.hasOpenaiApiKey || config.hasTavilyApiKey),
+            e2bApiKey: hasUserE2bKey ? state.e2bApiKey : (config.hasE2bApiKey ? "[FROM_SERVER]" : ""),
+            isCloudEnvironment: config.isCloudEnvironment,
+            sandboxType,
+            useServerDefaults: !hasUserAnthropicKey && !hasUserOpenaiKey && !hasUserTavilyKey && !hasUserE2bKey && (config.hasAnthropicApiKey || config.hasOpenaiApiKey || config.hasTavilyApiKey || config.hasE2bApiKey),
           });
         } catch (error) {
           console.error("Failed to fetch server config:", error);

@@ -4,6 +4,7 @@ import Editor, { type OnMount } from "@monaco-editor/react";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useSettings } from "@/components/settings/use-settings";
 
 // Monaco types for editor and monaco instances
 type MonacoEditor = Parameters<OnMount>[0];
@@ -66,6 +67,7 @@ export function FileEditor({
 }: FileEditorProps) {
 	const { theme, systemTheme } = useTheme();
 	const currentTheme = theme === "system" ? systemTheme : theme;
+	const sandboxType = useSettings((state) => state.sandboxType);
 	const [content, setContent] = useState(initialContent);
 	const [isSaving, setIsSaving] = useState(false);
 	const [savedContent, setSavedContent] = useState(initialContent);
@@ -161,6 +163,7 @@ export function FileEditor({
 				body: JSON.stringify({
 					path: filename,
 					content: currentContent,
+					sandboxType: sandboxType,
 				}),
 			});
 
@@ -185,7 +188,7 @@ export function FileEditor({
 				onSavingStateChangeRef.current(false);
 			}
 		}
-	}, [isSaving, savedContent, sandboxId, filename]);
+	}, [isSaving, savedContent, sandboxId, filename, sandboxType]);
 
 	// Keep handleSave ref updated
 	useEffect(() => {

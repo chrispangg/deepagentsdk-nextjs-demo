@@ -84,15 +84,31 @@ import {
   Settings as SettingsIcon,
   X,
   Lock as LockIcon,
+  Monitor,
+  Cloud,
+  AlertTriangle,
 } from "lucide-react";
 import { ApiSettings } from "@/components/settings/api-settings";
 import { ModelSelector } from "@/components/settings/model-selector";
-import { useSettings } from "@/components/settings/use-settings";
+import { useSettings, type SandboxType } from "@/components/settings/use-settings";
 import { motion, AnimatePresence } from "motion/react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
 
 export default function ValidationPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [showSandboxSwitchDialog, setShowSandboxSwitchDialog] = useState(false);
+  const [pendingSandboxType, setPendingSandboxType] = useState<SandboxType | null>(null);
   const settingsStore = useSettings();
 
   // Use the new full-events chat hook (deepagentsdk runs server-side in /api/chat)
@@ -106,6 +122,7 @@ export default function ValidationPage() {
     errorMessage,
     sendMessage,
     abort,
+    clear,
     refreshFiles,
   } = useChatFullEvents();
 
@@ -127,10 +144,61 @@ export default function ValidationPage() {
     initAndCheck();
   }, []); // Run only once on mount
 
-  // Handle message submission
+  // Handle message submission with validation
   const handleSubmitMessage = async (message: InputMessage) => {
+    // Validate model is selected
+    if (!settingsStore.selectedModel) {
+      toast.error("Please select a model before sending a message");
+      return;
+    }
+    
+    // Validate API key for selected provider
+    if (!settingsStore.hasApiKey(settingsStore.selectedProvider)) {
+      toast.error(`Please configure an API key for ${settingsStore.selectedProvider}`);
+      setIsSettingsOpen(true);
+      return;
+    }
+    
+    // Validate E2B key if using E2B sandbox
+    if (settingsStore.sandboxType === "e2b" && !settingsStore.hasE2bApiKey()) {
+      toast.error("E2B API key is required for cloud sandbox");
+      setIsSettingsOpen(true);
+      return;
+    }
+    
     await sendMessage({ text: message.text });
   };
+
+  // Handle sandbox type switch with confirmation
+  const handleSandboxSwitch = (newType: SandboxType) => {
+    if (newType === settingsStore.sandboxType) return;
+    
+    // If there are messages, show confirmation dialog
+    if (uiMessages.length > 0) {
+      setPendingSandboxType(newType);
+      setShowSandboxSwitchDialog(true);
+    } else {
+      // No messages, switch directly
+      settingsStore.setSandboxType(newType);
+      refreshFiles();
+      toast.success(`Switched to ${newType === "e2b" ? "E2B Cloud" : "Local"} Sandbox`);
+    }
+  };
+
+  // Confirm sandbox switch
+  const confirmSandboxSwitch = () => {
+    if (pendingSandboxType) {
+      settingsStore.setSandboxType(pendingSandboxType);
+      clear(); // Clear chat history
+      refreshFiles();
+      toast.success(`Switched to ${pendingSandboxType === "e2b" ? "E2B Cloud" : "Local"} Sandbox. Chat history cleared.`);
+    }
+    setShowSandboxSwitchDialog(false);
+    setPendingSandboxType(null);
+  };
+
+  // Check if sandbox toggle should be enabled
+  const canToggleSandbox = !settingsStore.isCloudEnvironment && settingsStore.hasE2bApiKey();
 
   return (
     <TooltipProvider>
@@ -449,14 +517,49 @@ export default function ValidationPage() {
                     />
                     <PromptInputFooter>
                       <div className="flex items-center justify-between w-full">
-                        <ModelSelector />
+                        <div className="flex items-center gap-3">
+                          <ModelSelector />
+                          
+                          {/* Sandbox Toggle */}
+                          {isInitialized && (
+                            <div className="flex items-center gap-1.5 px-2 py-1 border border-[var(--home-border-secondary)] bg-[var(--home-bg-card)]">
+                              <button
+                                onClick={() => handleSandboxSwitch("local")}
+                                disabled={settingsStore.isCloudEnvironment}
+                                className={`flex items-center gap-1 px-2 py-0.5 text-xs font-[family-name:var(--font-ibm-plex-mono)] transition-all duration-200 ${
+                                  settingsStore.sandboxType === "local"
+                                    ? "bg-[var(--home-accent)] text-white"
+                                    : "text-[var(--home-text-muted)] hover:text-[var(--home-text-primary)]"
+                                } ${settingsStore.isCloudEnvironment ? "opacity-50 cursor-not-allowed" : ""}`}
+                                title={settingsStore.isCloudEnvironment ? "Local sandbox not available in cloud environment" : "Use local sandbox"}
+                              >
+                                <Monitor className="size-3" />
+                                <span className="hidden sm:inline">Local</span>
+                              </button>
+                              <button
+                                onClick={() => handleSandboxSwitch("e2b")}
+                                disabled={!settingsStore.hasE2bApiKey() && !settingsStore.isCloudEnvironment}
+                                className={`flex items-center gap-1 px-2 py-0.5 text-xs font-[family-name:var(--font-ibm-plex-mono)] transition-all duration-200 ${
+                                  settingsStore.sandboxType === "e2b"
+                                    ? "bg-[var(--home-accent)] text-white"
+                                    : "text-[var(--home-text-muted)] hover:text-[var(--home-text-primary)]"
+                                } ${!settingsStore.hasE2bApiKey() && !settingsStore.isCloudEnvironment ? "opacity-50 cursor-not-allowed" : ""}`}
+                                title={!settingsStore.hasE2bApiKey() ? "E2B API key required" : "Use E2B cloud sandbox"}
+                              >
+                                <Cloud className="size-3" />
+                                <span className="hidden sm:inline">E2B</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
                         <PromptInputSubmit
                           status={uiStatus}
                           disabled={
                             uiStatus === "streaming" ||
                             uiStatus === "submitted" ||
                             !isInitialized ||
-                            !settingsStore.hasAnyApiKey()
+                            !settingsStore.hasAnyApiKey() ||
+                            !settingsStore.selectedModel
                           }
                           onClick={
                             uiStatus === "streaming" ? abort : undefined
@@ -478,6 +581,35 @@ export default function ValidationPage() {
               />
             </aside>
           </div>
+
+          {/* Sandbox Switch Confirmation Dialog */}
+          <AlertDialog open={showSandboxSwitchDialog} onOpenChange={setShowSandboxSwitchDialog}>
+            <AlertDialogContent className="bg-[var(--home-bg-card)] border-[var(--home-border-primary)]">
+              <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center gap-2 font-[family-name:var(--font-ibm-plex-mono)] text-[var(--home-text-primary)]">
+                  <AlertTriangle className="size-5 text-amber-500" />
+                  Switch Sandbox Environment?
+                </AlertDialogTitle>
+                <AlertDialogDescription className="text-[var(--home-text-secondary)]">
+                  Switching from <strong>{settingsStore.sandboxType === "local" ? "Local" : "E2B Cloud"}</strong> to{" "}
+                  <strong>{pendingSandboxType === "local" ? "Local" : "E2B Cloud"}</strong> sandbox will clear your current chat history and start fresh.
+                  <br /><br />
+                  Files in the current sandbox will remain, but you'll need to reference them again in the new session.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel className="font-[family-name:var(--font-ibm-plex-mono)] text-xs uppercase tracking-wider border-[var(--home-border-primary)] bg-transparent hover:bg-[var(--home-bg-elevated)]">
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={confirmSandboxSwitch}
+                  className="font-[family-name:var(--font-ibm-plex-mono)] text-xs uppercase tracking-wider bg-[var(--home-accent)] hover:bg-[var(--home-accent)]/90"
+                >
+                  Switch & Clear Chat
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </PromptInputProvider>
     </TooltipProvider>

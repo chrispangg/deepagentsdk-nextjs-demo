@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as fs from "fs";
 import * as path from "path";
+import { getE2BSandbox, DEFAULT_SANDBOX_ID } from "@/lib/sandbox-manager";
 
 // Get the workspace directory - same as used in chat route
 const workspaceDir = path.join(process.cwd(), ".sandbox-workspace");
@@ -10,6 +11,15 @@ if (!fs.existsSync(workspaceDir)) {
   fs.mkdirSync(workspaceDir, { recursive: true });
 }
 
+// Determine if running in cloud environment
+const isCloudEnvironment = 
+  process.env.DEPLOY_ENV === "cloud" ||
+  process.env.VERCEL === "1" ||
+  process.env.RAILWAY_ENVIRONMENT !== undefined ||
+  process.env.RENDER === "true" ||
+  process.env.FLY_APP_NAME !== undefined ||
+  process.env.HEROKU_APP_NAME !== undefined;
+
 // GET /api/sandboxes/[sandboxId]/files - Read file content or list files
 export async function GET(
   req: NextRequest,
@@ -18,12 +28,72 @@ export async function GET(
   const { sandboxId } = await params;
   const searchParams = req.nextUrl.searchParams;
   const filePath = searchParams.get("path");
+  
+  // Check for sandbox type from query params or determine from environment
+  const sandboxType = searchParams.get("sandboxType") || (isCloudEnvironment ? "e2b" : "local");
 
+  // Handle E2B sandbox
+  if (sandboxType === "e2b") {
+    const e2bSandbox = getE2BSandbox(DEFAULT_SANDBOX_ID);
+    
+    if (!e2bSandbox) {
+      return NextResponse.json({ 
+        files: [], 
+        sandboxId,
+        message: "No active E2B sandbox. Start a chat to create one."
+      });
+    }
+
+    // If no path provided, list all files in the E2B sandbox
+    if (!filePath) {
+      try {
+        // Use E2B's execute to list files
+        const result = await e2bSandbox.execute("find /home/user -type f -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/.next/*' 2>/dev/null | head -100");
+        
+        const files = result.output
+          .split("\n")
+          .filter((line: string) => line.trim() && line.startsWith("/home/user/"))
+          .map((line: string) => line.replace("/home/user/", ""));
+        
+        return NextResponse.json({ files, sandboxId, sandboxType: "e2b" });
+      } catch (error) {
+        console.error("[Files API] Error listing E2B files:", error);
+        return NextResponse.json(
+          { error: "Failed to list files from E2B sandbox" },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Read specific file content from E2B
+    try {
+      const fullPath = `/home/user/${filePath}`;
+      const result = await e2bSandbox.execute(`cat "${fullPath}"`);
+      
+      if (result.exitCode !== 0) {
+        return NextResponse.json({ error: "File not found" }, { status: 404 });
+      }
+      
+      return new NextResponse(result.output, {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+        },
+      });
+    } catch (error) {
+      console.error("[Files API] Error reading E2B file:", error);
+      return NextResponse.json(
+        { error: "Failed to read file from E2B sandbox" },
+        { status: 500 }
+      );
+    }
+  }
+
+  // Handle Local sandbox (original implementation)
   // If no path provided, list all files in the sandbox
   if (!filePath) {
     try {
       const files = listFilesRecursively(workspaceDir);
-      return NextResponse.json({ files, sandboxId });
+      return NextResponse.json({ files, sandboxId, sandboxType: "local" });
     } catch (error) {
       console.error("[Files API] Error listing files:", error);
       return NextResponse.json(
@@ -74,7 +144,10 @@ export async function POST(
 
   try {
     const body = await req.json();
-    const { path: filePath, content } = body;
+    const { path: filePath, content, sandboxType: requestedSandboxType } = body;
+    
+    // Determine sandbox type
+    const sandboxType = requestedSandboxType || (isCloudEnvironment ? "e2b" : "local");
 
     if (!filePath || content === undefined) {
       return NextResponse.json(
@@ -83,6 +156,47 @@ export async function POST(
       );
     }
 
+    // Handle E2B sandbox
+    if (sandboxType === "e2b") {
+      const e2bSandbox = getE2BSandbox(DEFAULT_SANDBOX_ID);
+      
+      if (!e2bSandbox) {
+        return NextResponse.json(
+          { error: "No active E2B sandbox. Start a chat to create one." },
+          { status: 400 }
+        );
+      }
+
+      try {
+        const fullPath = `/home/user/${filePath}`;
+        
+        // Ensure directory exists
+        const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
+        if (dir) {
+          await e2bSandbox.execute(`mkdir -p "${dir}"`);
+        }
+        
+        // Write file content using heredoc
+        // Escape content for shell
+        const escapedContent = content.replace(/'/g, "'\\''");
+        await e2bSandbox.execute(`cat > "${fullPath}" << 'EOFMARKER'\n${escapedContent}\nEOFMARKER`);
+        
+        return NextResponse.json({
+          success: true,
+          sandboxId,
+          sandboxType: "e2b",
+          path: filePath,
+        });
+      } catch (error) {
+        console.error("[Files API] Error writing E2B file:", error);
+        return NextResponse.json(
+          { error: "Failed to write file to E2B sandbox" },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Handle Local sandbox (original implementation)
     const fullPath = path.join(workspaceDir, filePath);
 
     // Security check: ensure the path is within the workspace
@@ -105,6 +219,7 @@ export async function POST(
     return NextResponse.json({
       success: true,
       sandboxId,
+      sandboxType: "local",
       path: filePath,
     });
   } catch (error) {
@@ -149,4 +264,3 @@ function listFilesRecursively(
 
   return files;
 }
-
