@@ -5,6 +5,7 @@ import { useTheme } from "next-themes";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useSettings } from "@/components/settings/use-settings";
+import useSWR from "swr";
 
 // Monaco types for editor and monaco instances
 type MonacoEditor = Parameters<OnMount>[0];
@@ -69,6 +70,14 @@ export function FileEditor({
 	const currentTheme = theme === "system" ? systemTheme : theme;
 	const sandboxType = useSettings((state) => state.sandboxType);
 	const [content, setContent] = useState(initialContent);
+	
+	// Fetch E2B sandbox ID for serverless reconnection
+	const { data: sandboxInfo } = useSWR(
+		sandboxType === "e2b" ? "/api/sandbox-info" : null,
+		(url) => fetch(url).then(res => res.json()),
+		{ revalidateOnFocus: false }
+	);
+	const e2bSandboxId = sandboxInfo?.e2bSandboxId;
 	const [isSaving, setIsSaving] = useState(false);
 	const [savedContent, setSavedContent] = useState(initialContent);
 	const [fontSize, setFontSize] = useState(16); // Default to 16px for mobile
@@ -164,6 +173,7 @@ export function FileEditor({
 					path: filename,
 					content: currentContent,
 					sandboxType: sandboxType,
+					e2bSandboxId: sandboxType === "e2b" ? e2bSandboxId : undefined,
 				}),
 			});
 
@@ -188,7 +198,7 @@ export function FileEditor({
 				onSavingStateChangeRef.current(false);
 			}
 		}
-	}, [isSaving, savedContent, sandboxId, filename, sandboxType]);
+	}, [isSaving, savedContent, sandboxId, filename, sandboxType, e2bSandboxId]);
 
 	// Keep handleSave ref updated
 	useEffect(() => {

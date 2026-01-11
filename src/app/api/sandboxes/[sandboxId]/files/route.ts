@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as fs from "fs";
 import * as path from "path";
-import { getE2BSandbox, DEFAULT_SANDBOX_ID } from "@/lib/sandbox-manager";
+import { Sandbox } from "e2b";
+import { getE2BSandbox, getE2BSandboxId, setE2BSandbox, DEFAULT_SANDBOX_ID } from "@/lib/sandbox-manager";
+import { type E2BBackend } from "deepagentsdk";
 
 // Determine if running in cloud environment
 // This must be checked BEFORE attempting any filesystem operations
@@ -43,7 +45,42 @@ export async function GET(
 
   // Handle E2B sandbox
   if (sandboxType === "e2b") {
-    const e2bSandbox = getE2BSandbox(DEFAULT_SANDBOX_ID);
+    // Get E2B sandbox ID from query params (for serverless reconnection) or from cache
+    const e2bSandboxIdParam = searchParams.get("e2bSandboxId");
+    
+    // Try to get sandbox from in-memory cache first (works locally)
+    let e2bSandbox = getE2BSandbox(DEFAULT_SANDBOX_ID);
+    
+    // If no sandbox in cache but we have an ID, try to reconnect (serverless environments)
+    if (!e2bSandbox && e2bSandboxIdParam) {
+      console.log(`[Files API] Reconnecting to E2B sandbox: ${e2bSandboxIdParam}`);
+      try {
+        const reconnectedSandbox = await Sandbox.connect(e2bSandboxIdParam, {
+          apiKey: process.env.E2B_API_KEY,
+        });
+        
+        // Create a wrapper that matches E2BBackend interface for execute
+        e2bSandbox = {
+          id: reconnectedSandbox.sandboxId,
+          execute: async (command: string) => {
+            const result = await reconnectedSandbox.commands.run(command);
+            return {
+              output: result.stdout + result.stderr,
+              exitCode: result.exitCode,
+            };
+          },
+        } as unknown as E2BBackend;
+        
+        console.log(`[Files API] Successfully reconnected to E2B sandbox`);
+      } catch (error) {
+        console.error("[Files API] Error reconnecting to E2B sandbox:", error);
+        return NextResponse.json({ 
+          files: [], 
+          sandboxId,
+          error: "Failed to reconnect to E2B sandbox. It may have expired."
+        });
+      }
+    }
     
     if (!e2bSandbox) {
       return NextResponse.json({ 
@@ -153,7 +190,7 @@ export async function POST(
 
   try {
     const body = await req.json();
-    const { path: filePath, content, sandboxType: requestedSandboxType } = body;
+    const { path: filePath, content, sandboxType: requestedSandboxType, e2bSandboxId: e2bSandboxIdParam } = body;
     
     // Determine sandbox type
     const sandboxType = requestedSandboxType || (isCloudEnvironment ? "e2b" : "local");
@@ -167,7 +204,38 @@ export async function POST(
 
     // Handle E2B sandbox
     if (sandboxType === "e2b") {
-      const e2bSandbox = getE2BSandbox(DEFAULT_SANDBOX_ID);
+      // Try to get sandbox from in-memory cache first (works locally)
+      let e2bSandbox = getE2BSandbox(DEFAULT_SANDBOX_ID);
+      
+      // If no sandbox in cache but we have an ID, try to reconnect (serverless environments)
+      if (!e2bSandbox && e2bSandboxIdParam) {
+        console.log(`[Files API] Reconnecting to E2B sandbox for write: ${e2bSandboxIdParam}`);
+        try {
+          const reconnectedSandbox = await Sandbox.connect(e2bSandboxIdParam, {
+            apiKey: process.env.E2B_API_KEY,
+          });
+          
+          // Create a wrapper that matches E2BBackend interface for execute
+          e2bSandbox = {
+            id: reconnectedSandbox.sandboxId,
+            execute: async (command: string) => {
+              const result = await reconnectedSandbox.commands.run(command);
+              return {
+                output: result.stdout + result.stderr,
+                exitCode: result.exitCode,
+              };
+            },
+          } as unknown as E2BBackend;
+          
+          console.log(`[Files API] Successfully reconnected to E2B sandbox for write`);
+        } catch (error) {
+          console.error("[Files API] Error reconnecting to E2B sandbox:", error);
+          return NextResponse.json(
+            { error: "Failed to reconnect to E2B sandbox. It may have expired." },
+            { status: 400 }
+          );
+        }
+      }
       
       if (!e2bSandbox) {
         return NextResponse.json(

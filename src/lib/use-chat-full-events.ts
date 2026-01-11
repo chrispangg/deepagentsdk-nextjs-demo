@@ -91,9 +91,27 @@ export function useChatFullEvents(): UseChatFullEventsReturn {
   const [status, setStatus] = useState<UIStatusState>("ready");
   const [todos, setTodos] = useState<any[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [e2bSandboxId, setE2bSandboxId] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const currentMessageIdRef = useRef<string | null>(null);
+
+  // Function to get the current E2B sandbox ID from the server
+  const fetchSandboxInfo = useCallback(async () => {
+    try {
+      const response = await fetch("/api/sandbox-info");
+      if (response.ok) {
+        const data = await response.json();
+        if (data.e2bSandboxId) {
+          setE2bSandboxId(data.e2bSandboxId);
+          return data.e2bSandboxId;
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch sandbox info:", error);
+    }
+    return null;
+  }, []);
 
   // Function to refresh file list from sandbox
   const refreshFiles = useCallback(async () => {
@@ -103,7 +121,22 @@ export function useChatFullEvents(): UseChatFullEventsReturn {
       const settings = useSettings.getState();
       const sandboxType = settings.sandboxType || "local";
       
-      const response = await fetch(`/api/sandboxes/${sandboxId}/files?sandboxType=${sandboxType}`);
+      // Build query params
+      const params = new URLSearchParams({ sandboxType });
+      
+      // For E2B, try to get the sandbox ID for reconnection in serverless environments
+      if (sandboxType === "e2b") {
+        // First try the cached ID, then fetch from server
+        let currentE2bId = e2bSandboxId;
+        if (!currentE2bId) {
+          currentE2bId = await fetchSandboxInfo();
+        }
+        if (currentE2bId) {
+          params.set("e2bSandboxId", currentE2bId);
+        }
+      }
+      
+      const response = await fetch(`/api/sandboxes/${sandboxId}/files?${params.toString()}`);
       if (response.ok) {
         const data = await response.json();
         if (data.files && Array.isArray(data.files)) {
@@ -113,7 +146,7 @@ export function useChatFullEvents(): UseChatFullEventsReturn {
     } catch (error) {
       console.error("Failed to refresh files:", error);
     }
-  }, [sandboxId]);
+  }, [sandboxId, e2bSandboxId, fetchSandboxInfo]);
 
   // Refresh files on mount
   useEffect(() => {

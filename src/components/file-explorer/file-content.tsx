@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { PulseLoader } from "react-spinners";
 import useSWR from "swr";
 import { useFileHistory } from "@/app/state";
@@ -31,14 +31,32 @@ export const FileContent = memo(function FileContent({
 		(state) => state.captureOriginalBeforeAI,
 	);
 	const sandboxType = useSettings((state) => state.sandboxType);
+	const [e2bSandboxId, setE2bSandboxId] = useState<string | null>(null);
+	
+	// Fetch E2B sandbox ID for serverless reconnection
+	useEffect(() => {
+		if (sandboxType === "e2b") {
+			fetch("/api/sandbox-info")
+				.then(res => res.json())
+				.then(data => {
+					if (data.e2bSandboxId) {
+						setE2bSandboxId(data.e2bSandboxId);
+					}
+				})
+				.catch(console.error);
+		}
+	}, [sandboxType]);
 	
 	const searchParams = useMemo(() => {
 		const params = new URLSearchParams({ path });
 		if (sandboxType) {
 			params.set("sandboxType", sandboxType);
 		}
+		if (sandboxType === "e2b" && e2bSandboxId) {
+			params.set("e2bSandboxId", e2bSandboxId);
+		}
 		return params;
-	}, [path, sandboxType]);
+	}, [path, sandboxType, e2bSandboxId]);
 	
 	const content = useSWR(
 		`/api/sandboxes/${sandboxId}/files?${searchParams.toString()}`,
