@@ -3,15 +3,8 @@ import * as fs from "fs";
 import * as path from "path";
 import { getE2BSandbox, DEFAULT_SANDBOX_ID } from "@/lib/sandbox-manager";
 
-// Get the workspace directory - same as used in chat route
-const workspaceDir = path.join(process.cwd(), ".sandbox-workspace");
-
-// Ensure workspace exists
-if (!fs.existsSync(workspaceDir)) {
-  fs.mkdirSync(workspaceDir, { recursive: true });
-}
-
 // Determine if running in cloud environment
+// This must be checked BEFORE attempting any filesystem operations
 const isCloudEnvironment = 
   process.env.DEPLOY_ENV === "cloud" ||
   process.env.VERCEL === "1" ||
@@ -19,6 +12,22 @@ const isCloudEnvironment =
   process.env.RENDER === "true" ||
   process.env.FLY_APP_NAME !== undefined ||
   process.env.HEROKU_APP_NAME !== undefined;
+
+// Get the workspace directory - same as used in chat route
+const workspaceDir = path.join(process.cwd(), ".sandbox-workspace");
+
+// Only create workspace directory in local environments
+// Cloud environments (Vercel, etc.) have read-only filesystems
+if (!isCloudEnvironment) {
+  try {
+    if (!fs.existsSync(workspaceDir)) {
+      fs.mkdirSync(workspaceDir, { recursive: true });
+    }
+  } catch (error) {
+    console.warn("[Files] Could not create workspace directory:", error);
+    // This is expected in some environments, we'll use E2B instead
+  }
+}
 
 // GET /api/sandboxes/[sandboxId]/files - Read file content or list files
 export async function GET(

@@ -7,15 +7,8 @@ import * as path from "path";
 import { NextRequest } from "next/server";
 import { setE2BSandbox, getE2BSandbox, DEFAULT_SANDBOX_ID } from "@/lib/sandbox-manager";
 
-// Create a workspace directory for the local sandbox
-const workspaceDir = path.join(process.cwd(), ".sandbox-workspace");
-
-// Ensure workspace exists (for local sandbox)
-if (!fs.existsSync(workspaceDir)) {
-  fs.mkdirSync(workspaceDir, { recursive: true });
-}
-
 // Determine if running in cloud environment
+// This must be checked BEFORE attempting any filesystem operations
 const isCloudEnvironment = 
   process.env.DEPLOY_ENV === "cloud" ||
   process.env.VERCEL === "1" ||
@@ -23,6 +16,23 @@ const isCloudEnvironment =
   process.env.RENDER === "true" ||
   process.env.FLY_APP_NAME !== undefined ||
   process.env.HEROKU_APP_NAME !== undefined;
+
+// Create a workspace directory for the local sandbox (only in non-cloud environments)
+// In cloud environments, we use E2B exclusively and don't need local filesystem access
+const workspaceDir = path.join(process.cwd(), ".sandbox-workspace");
+
+// Only create workspace directory in local environments
+// Cloud environments (Vercel, etc.) have read-only filesystems
+if (!isCloudEnvironment) {
+  try {
+    if (!fs.existsSync(workspaceDir)) {
+      fs.mkdirSync(workspaceDir, { recursive: true });
+    }
+  } catch (error) {
+    console.warn("[Chat] Could not create workspace directory:", error);
+    // This is expected in some environments, we'll use E2B instead
+  }
+}
 
 // Cache for agents to reuse them when settings haven't changed
 const agentCache = new Map<string, any>();
